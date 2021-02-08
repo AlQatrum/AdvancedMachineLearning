@@ -14,6 +14,10 @@ import numpy as np
 from skimage import transform
 import matplotlib.pyplot as plt
 
+import torchvision.transforms as transforms
+import torchvision.datasets as datasets
+from torch.utils.data import DataLoader
+
 ### Creating objects ###
 class ColorTransformer(nn.Module):
     def __init__(self):
@@ -200,7 +204,26 @@ if torch.cuda.is_available():
 else:
     device = torch.device('cpu')
 
+## Autre proposition pour importer les données avec pytroch ##
+# pipeline de transformation des images (appliqué automatiquement au chargement)
+transform_mnist = transforms.Compose(
+    [
+     transforms.Grayscale(3), # RGB
+    transforms.Pad(2,fill = 0), # padding 32 x 32
+    transforms.ToTensor()] # tensor conversion
+)
+# batch size
+bs = 512
 
+# jeu de donnée
+mnist_trainset = DataLoader( datasets.MNIST('./data/mnist', download=True, train=True, transform=transform_mnist), 
+                batch_size=bs, drop_last=True, shuffle=True)
+mnist_testset = DataLoader( datasets.MNIST('./data/mnist', download=True, train=False, transform=transform_mnist), 
+                batch_size=bs, drop_last=True, shuffle=True)
+
+# train set : tuple (image,label)
+for input,target in mnist_trainset:
+    print(input.size())
 
 ### Importing Data
 mnist = fetch_openml('mnist_784',version=1, cache=True)
