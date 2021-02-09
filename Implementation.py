@@ -118,10 +118,10 @@ class Transformer(nn.Module):
     def DoCtn(self,x):
         Tc = self.ctn(x)
         Tc = Tc.view(-1,3,9)
-        XSqr = x**2
-        XR, XG, XB = x.unbind(1)     
-        Vec = torch.stack((x, XSqr, torch.mul(XR,XG), torch.mul(XR,XB), torch.mul(XG,XB)))
-        Res = torch.prod(Tc, Vec)
+        # XSqr = x**2
+        # XR, XG, XB = x.unbind(1)     
+        # Vec = torch.stack((x, XSqr, torch.mul(XR,XG), torch.mul(XR,XB), torch.mul(XG,XB)))
+        # Res = torch.prod(Tc, Vec)
         
         # Problème pour multiplier Tc par vec :
             # Tc : batch de matrices
@@ -173,10 +173,10 @@ class FeatureExtractor_MNIST_SVHN(nn.Module):
         self.Activation3 = nn.ReLU()
         self.DropOut3 = nn.Dropout2d(p = 0.5)
         
-        self.Lin1 = nn.Linear(3136,3072)
-        self.BatchNorm4 = nn.BatchNorm2d(3072) # same shape as input
+        self.Lin1 = nn.Linear(6272,3072)
+        self.BatchNorm4 = nn.BatchNorm1d(3072) # same shape as input
         self.Activation4 = nn.ReLU()
-        self.DropOut4 = nn.Dropout2d(p = 0.5)
+        self.DropOut4 = nn.Dropout(p = 0.5)
         
         
     def forward(self, x):
@@ -198,8 +198,7 @@ class FeatureExtractor_MNIST_SVHN(nn.Module):
         x = self.Activation3(x)
         x = self.DropOut3(x)
 
-
-        x = x.view(-1, 3136)
+        x = x.view(-1, 6272)
         x = self.Lin1(x)
         x = self.BatchNorm4(x)
         x = self.Activation4(x)
@@ -222,7 +221,7 @@ class LabelClassifier_MNIST_SVHN(nn.Module):
         x = self.Activation(x)
         x = self.Lin2(x)
         
-        return nn.Softmax(x) # all classifier end by a softmax cf article
+        return F.softmax(x) # all classifier end by a softmax cf article
 
 # Lf in paper
 def FoolingLoss(Output):
@@ -306,6 +305,7 @@ InverseNetwork.train()
 ### Reminder: Gradient shall not propagate until the end 
 ### Sequential trainning method
 for batch_idx, Data in enumerate(zip(mnist_trainset, svhn_trainset)):
+    ### Data ###
     Source, Target = Data
     SourceData, SourceLabel = Source
     SourceData = SourceData.double()
@@ -313,42 +313,92 @@ for batch_idx, Data in enumerate(zip(mnist_trainset, svhn_trainset)):
     TargetData, TargetLabel = Target
     TargetData = TargetData.double()
     TargetLabel = TargetLabel.double()
+    ## Place Data on GPU if available ##
     SourceData, SourceLabel = SourceData.to(device), SourceLabel.to(device)
     TargetData, TargetLabel = TargetData.to(device), TargetLabel.to(device)
+    
+    # As(Xs)
     SourceTransformed = TransformerSource(SourceData)
+    # C(G(As(Xs)))
     SourceClassification = ForwardNetwork(SourceTransformed)
+    # Update only C and G ==> As do not require grad
+    for p in TransformerSource.parameters():
+        p.require_grad = False
+    
     for Classifier in SourceClassification:
         Loss = SupervisedLoss(Classifier, SourceLabel)
         ForwardNetwork.zero_grad()
         Loss.backward()
 ### End step 1 ###
+    # At(Xt)
     TargetTransformed = TransformerTarget(TargetData)
+    # C(G(At(Xt)))
     TargetClassification = ForwardNetwork(TargetTransformed)
-    Classifiers = ForwardNetwork.C()
+    Classifiers = ForwardNetwork.C
+    
+    # Update only C ==> G and As do not require grad
+    for p in ForwardNetwork.G.parameters():
+        p.require_grad = False
+    
     for Classifier, Prediction in zip(Classifiers, TargetClassification):
         Classifier.zero_grad()
         Loss = FoolingLoss(Prediction)
         Loss.backward()
 ### End step 2 ###
+    # Update Only G and At
+    ForwardNetwork.zero_grad()
+    TransformerTarget.zero_grad()
+    for p in ForwardNetwork.G.parameters():
+        p.require_grad = True
+    for p in Classifiers.parameters():
+        p.require_grad = False
+    
     Lc = ConsensusLoss(TargetClassification)
     Lc.backward()
     TargetClassificationStack = torch.stack(TargetClassification)
+    # Yt*
     TargetLabelEstimated = torch.mean(TargetClassificationStack, 0)
 ### End step 3 ###
+    # C-(G-(At(Xt)))
     InverseTargetClassification = InverseNetwork(TargetTransformed)
+    # Only update C- and G-
+    for p in TransformerSource.parameters():
+        p.require_grad = False
+    for p in ForwardNetwork.parameters():
+       p.require_grad = False
+   
     for InverseClassifier in InverseTargetClassification:
+        InverseNetwork.zero_grad()
         Loss = SupervisedLoss(InverseClassifier, TargetLabelEstimated)
         Loss.backward() # Update only G- and C-
-### End sep 4 ###
-    InverseClassifiers = InverseNetwork.C()
+### End step 4 ###
+    # Only update C-
+    InverseClassifiers = InverseNetwork.C
+    for p in InverseNetwork.G.parameters():
+        p.require_grad = False
+        
     for InverseClassifier, Prediction in zip(InverseClassifiers, SourceClassification):
         InverseClassifier.zero_grad()
         Loss = FoolingLoss(Prediction)
         Loss.backward() # Update only C-
 ### End step 5 ###
+    # Only update G-
+    for p in InverseNetwork.G.parameters():
+        p.require_grad = True
+    for p in InverseClassifiers.parameters():
+        p.require_grad = False
+    InverseNetwork.zero_grad()
     Lc = ConsensusLoss(SourceClassification)
     Lc.backward()
 ### End step 6 ###
+    # Only train As
+    for p in InverseNetwork.G.parameters():
+        p.require_grad = False
+    for p in TransformerSource.parameters():
+        p.require_grad = True
+    
+    TransformerSource.zero_grad()
+    
     InverseSourceClassification = InverseNetwork(SourceTransformed)
     for InverseClassifier in InverseSourceClassification:
         Loss = SupervisedLoss(InverseClassifier, SourceLabel)
