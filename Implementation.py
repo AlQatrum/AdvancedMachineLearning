@@ -19,6 +19,8 @@ import torchvision.datasets as datasets
 from torch.utils.data import DataLoader
 
 ### Creating objects ###
+
+# Small CNN to obtain Tc (color matrix transfomer)
 class ColorTransformer(nn.Module):
     def __init__(self):
         super(ColorTransformer, self).__init__()
@@ -57,6 +59,7 @@ class ColorTransformer(nn.Module):
         x = self.Lin2(x)
         return x
 
+# Small CNN to obtain Ts (spatial matrix transfomer)
 class SpatialTransformer(nn.Module):
     def __init__(self):
         super(SpatialTransformer, self).__init__()
@@ -93,7 +96,8 @@ class SpatialTransformer(nn.Module):
         x = self.Lin2(x)
         
         return x
-    
+  
+# Target or source transformers (At or As)
 class Transformer(nn.Module):
     def __init__(self):
         super(Transformer, self).__init__()
@@ -112,7 +116,17 @@ class Transformer(nn.Module):
         return x
     
     def DoCtn(self,x):
+        Tc = self.ctn(x)
+        Tc = Tc.view(-1,3,9)
+        XSqr = x**2
+        XR, XG, XB = x.unbind(1)     
+        Vec = torch.stack((x, XSqr, torch.mul(XR,XG), torch.mul(XR,XB), torch.mul(XG,XB)))
+        Res = torch.prod(Tc, Vec)
         
+        # Problème pour multiplier Tc par vec :
+            # Tc : batch de matrices
+            # Vec : batch d'images (modifiées)
+            # On veut multiplier chaque pixel d'une image de Vec par Tc (multiplication matricielle)
         return x
     
     def forward(self, x):
@@ -121,7 +135,23 @@ class Transformer(nn.Module):
         x = self.DoStn(x)
         
         return x
-    
+
+# Forward or invert network
+class Network(nn.Module):
+    def __init__(self):
+        super(Network, self).__init__()
+        self.G = FeatureExtractor_MNIST_SVHN()
+        self.C = nn.ModuleList([LabelClassifier_MNIST_SVHN() for i in range(NbClassifiers)])
+        
+    def forward(self, x):
+        x = self.G(x)
+        self.Classification = []
+        for Classifier in self.C:
+            self.Classification.append(Classifier(x))
+        return self.Classification
+
+        
+# MNIST as source and SVHN as target (table 7 in supplementary material) (G in paper)
 class FeatureExtractor_MNIST_SVHN(nn.Module):
     def __init__(self):
         super(FeatureExtractor_MNIST_SVHN, self).__init__()
@@ -176,7 +206,8 @@ class FeatureExtractor_MNIST_SVHN(nn.Module):
         x = self.DropOut4(x)
 
         return x
-    
+
+# MNIST as source and SVHN as target (table 8 in supplementary material) (Ck in paper)
 class LabelClassifier_MNIST_SVHN(nn.Module):
     def __init__(self):
         super(LabelClassifier_MNIST_SVHN, self).__init__()
@@ -193,10 +224,37 @@ class LabelClassifier_MNIST_SVHN(nn.Module):
         
         return nn.Softmax(x) # all classifier end by a softmax cf article
 
+# Lf in paper
+def FoolingLoss(Output):
+    Loss = torch.mean(Output * torch.log(Output))
+    return Loss
+
+# Ls in paper
+def SupervisedLoss(Output, Target):
+    Loss = -1*torch.mean(Target*torch.log(Output))
+    return Loss
+
+# Lc in paper
+def ConsensusLoss(Outputs):
+    Classifiers = torch.stack(Outputs)
+    PHat = torch.mean(Classifiers, 0)
+    Loss = -1*torch.mean(PHat*torch.sum(Outputs))
+    return Loss
+
+# To compute the number of error in the prediction
+def compute_nb_errors(Target, TrueLabels, bs):
+  nb_errors = 0
+  _, predicted_classes = Target.max(1)
+  for k in range(bs):
+      if TrueLabels[k] != predicted_classes[k]:
+          nb_errors = nb_errors + 1
+  return nb_errors
+
 ### Main Program ###
 ### Parameters
 learning_rate = 1e-6
-Pad = nn.ZeroPad2d(padding = 2)
+NbClassifiers = 5 # Number of Ck to use (Nc in paper)
+bs = 512 # Batch size
 
 ### Using GPU
 if torch.cuda.is_available():
@@ -204,57 +262,141 @@ if torch.cuda.is_available():
 else:
     device = torch.device('cpu')
 
-## Autre proposition pour importer les données avec pytroch ##
-# pipeline de transformation des images (appliqué automatiquement au chargement)
+
+### Pipeline to transform MNIST images 
 transform_mnist = transforms.Compose(
     [
      transforms.Grayscale(3), # RGB
-    transforms.Pad(2,fill = 0), # padding 32 x 32
+    transforms.Pad(2,fill = 0), # padding to have a 32 x 32 image
     transforms.ToTensor()] # tensor conversion
 )
-# batch size
-bs = 512
 
-# jeu de donnée
-mnist_trainset = DataLoader( datasets.MNIST('./data/mnist', download=True, train=True, transform=transform_mnist), 
+transform_svhn = transforms.Compose(
+    [transforms.ToTensor()] # tensor conversion
+)
+
+
+### Importing dataset 
+mnist_trainset = DataLoader(datasets.MNIST('./data/mnist', download=True, train=True, transform=transform_mnist), 
                 batch_size=bs, drop_last=True, shuffle=True)
-mnist_testset = DataLoader( datasets.MNIST('./data/mnist', download=True, train=False, transform=transform_mnist), 
+mnist_testset = DataLoader(datasets.MNIST('./data/mnist', download=True, train=False, transform=transform_mnist), 
                 batch_size=bs, drop_last=True, shuffle=True)
 
-# train set : tuple (image,label)
-for input,target in mnist_trainset:
-    print(input.size())
+svhn_trainset = DataLoader(datasets.SVHN('./data/svhn', download=True, split = 'train', transform=transform_svhn), 
+                batch_size=bs, drop_last=True, shuffle=True)
+svhn_testset = DataLoader(datasets.SVHN('./data/svhn', download=True, split = 'test', transform=transform_svhn), 
+                batch_size=bs, drop_last=True, shuffle=True)
 
-### Importing Data
-mnist = fetch_openml('mnist_784',version=1, cache=True)
-### Spliting dataset
-X, y = mnist["data"] , mnist["target"]
-X_train, X_test, y_train, y_test = X[:60000], X[60000:], y[:60000], y[60000:]
-shuffle_index = np.random.permutation(60000)
-X_train, y_train = X_train[shuffle_index], y_train [shuffle_index]
 
-# Defining input size, hidden layer size, output size and batch size respectively
-n_in, n_h, n_out, batch_size = 10, 5, 1, 10
+### Model instanciation
+TransformerSource = Transformer()
+TransformerSource = TransformerSource.double().to(device)
+TransformerSource.train()
+TransformerTarget = Transformer()
+TransformerTarget = TransformerTarget.double().to(device)
+TransformerTarget.train()
 
-#ColorTransformer.to(device)
+ForwardNetwork = Network()
+ForwardNetwork = ForwardNetwork.double().to(device)
+ForwardNetwork.train()
+InverseNetwork = Network()
+InverseNetwork = InverseNetwork.double().to(device)
+InverseNetwork.train()
 
-Model = ColorTransformer()
+### Reminder: Gradient shall not propagate until the end 
+### Sequential trainning method
+for batch_idx, Data in enumerate(zip(mnist_trainset, svhn_trainset)):
+    Source, Target = Data
+    SourceData, SourceLabel = Source
+    SourceData = SourceData.double()
+    SourceLabel = SourceLabel.double()
+    TargetData, TargetLabel = Target
+    TargetData = TargetData.double()
+    TargetLabel = TargetLabel.double()
+    SourceData, SourceLabel = SourceData.to(device), SourceLabel.to(device)
+    TargetData, TargetLabel = TargetData.to(device), TargetLabel.to(device)
+    SourceTransformed = TransformerSource(SourceData)
+    SourceClassification = ForwardNetwork(SourceTransformed)
+    for Classifier in SourceClassification:
+        Loss = SupervisedLoss(Classifier, SourceLabel)
+        ForwardNetwork.zero_grad()
+        Loss.backward()
+### End step 1 ###
+    TargetTransformed = TransformerTarget(TargetData)
+    TargetClassification = ForwardNetwork(TargetTransformed)
+    Classifiers = ForwardNetwork.C()
+    for Classifier, Prediction in zip(Classifiers, TargetClassification):
+        Classifier.zero_grad()
+        Loss = FoolingLoss(Prediction)
+        Loss.backward()
+### End step 2 ###
+    Lc = ConsensusLoss(TargetClassification)
+    Lc.backward()
+    TargetClassificationStack = torch.stack(TargetClassification)
+    TargetLabelEstimated = torch.mean(TargetClassificationStack, 0)
+### End step 3 ###
+    InverseTargetClassification = InverseNetwork(TargetTransformed)
+    for InverseClassifier in InverseTargetClassification:
+        Loss = SupervisedLoss(InverseClassifier, TargetLabelEstimated)
+        Loss.backward() # Update only G- and C-
+### End sep 4 ###
+    InverseClassifiers = InverseNetwork.C()
+    for InverseClassifier, Prediction in zip(InverseClassifiers, SourceClassification):
+        InverseClassifier.zero_grad()
+        Loss = FoolingLoss(Prediction)
+        Loss.backward() # Update only C-
+### End step 5 ###
+    Lc = ConsensusLoss(SourceClassification)
+    Lc.backward()
+### End step 6 ###
+    InverseSourceClassification = InverseNetwork(SourceTransformed)
+    for InverseClassifier in InverseSourceClassification:
+        Loss = SupervisedLoss(InverseClassifier, SourceLabel)
+        Loss.backward() # Update only As
+### End step 7 ###
 
-Model = Model.double()
+### Prediction ###
 
-Test = [np.reshape(X_train[0], (28,28)), np.reshape(X_train[1], (28,28))]
-Test[0] = torch.from_numpy(Test[0]).unsqueeze_(0)
-Test[1] = torch.from_numpy(Test[1]).unsqueeze_(0)
-Test[0] = Test[0].repeat(3,1,1)
-Test[1] = Test[1].repeat(3,1,1)
-Test[0] = Pad(Test[0])
-Test[1] = Pad(Test[1])
-Test = torch.stack((Test[0], Test[1]))
+TransformerSource.eval()
+TransformerTarget.eval()
 
-A = Model(Test.double())
-print(A)
-print(len(A))
-print(A[0].size())
-#ColorTransformer.train(X_train, y_train)
+ForwardNetwork.eval()
+InverseNetwork.eval()
 
-#ColorTransformer.t
+for batch_idx, Data in enumerate(zip(mnist_testset, svhn_testset)):
+    Source, Target = Data
+    SourceData, SourceLabel = Source
+    SourceData = SourceData.double()
+    SourceLabel = SourceLabel.double()
+    TargetData, TargetLabel = Target
+    TargetData = TargetData.double()
+    TargetLabel = TargetLabel.double()
+    SourceData, SourceLabel = SourceData.to(device), SourceLabel.to(device)
+    TargetData, TargetLabel = TargetData.to(device), TargetLabel.to(device)
+    SourceTransformed = TransformerSource(SourceData)
+    SourceClassification = ForwardNetwork(SourceTransformed)
+    for Classifier in SourceClassification:
+        Loss = SupervisedLoss(Classifier, SourceLabel)
+        ForwardNetwork.zero_grad()
+        Loss.backward()
+### End step 1 ###
+    TargetTransformed = TransformerTarget(TargetData)
+    TargetClassification = ForwardNetwork(TargetTransformed)
+    Classifiers = ForwardNetwork.C()
+    for Classifier, Prediction in zip(Classifiers, TargetClassification):
+        Classifier.zero_grad()
+        Loss = FoolingLoss(Prediction)
+        Loss.backward()
+### End step 2 ###
+    Lc = ConsensusLoss(TargetClassification)
+    Lc.backward()
+    TargetClassificationStack = torch.stack(TargetClassification)
+    TargetLabelEstimated = torch.mean(TargetClassificationStack, 0)
+### End step 3 ###
+
+FalsePredictions = compute_nb_errors(TargetLabelEstimated, svhn_testset[1], bs)
+
+print("Total correct: "+ str(len(svhn_testset[1])-FalsePredictions))
+print("Accuracy: "+str(len(svhn_testset[1])-FalsePredictions)/len(svhn_testset[1]))
+
+
