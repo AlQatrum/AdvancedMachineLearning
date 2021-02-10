@@ -116,18 +116,27 @@ class Transformer(nn.Module):
         return x
     
     def DoCtn(self,x):
+        Dim = x.size()
+        ImageSize = Dim[2]*Dim[3]
         Tc = self.ctn(x)
-        Tc = Tc.view(-1,3,9)
-        # XSqr = x**2
-        # XR, XG, XB = x.unbind(1)     
-        # Vec = torch.stack((x, XSqr, torch.mul(XR,XG), torch.mul(XR,XB), torch.mul(XG,XB)))
-        # Res = torch.prod(Tc, Vec)
+        Tc = Tc.view(-1,3,9) # Reshaping Tc to have a bsx3x9 tensor
+        # Quadratic color vector
+        XSqr = x**2
+        XR, XG, XB = x.unbind(1) # Split image channel    
+        XR = XR.unsqueeze(1) # Add one dimension
+        XG = XG.unsqueeze(1)
+        XB = XB.unsqueeze(1)
+        Vec = torch.cat((x, XSqr, torch.mul(XR,XG), torch.mul(XR,XB), torch.mul(XG,XB)), dim = 1)
+        Vec = Vec.permute(0,2,3,1) # Changing dimension order to make the .view() work
         
-        # Problème pour multiplier Tc par vec :
-            # Tc : batch de matrices
-            # Vec : batch d'images (modifiées)
-            # On veut multiplier chaque pixel d'une image de Vec par Tc (multiplication matricielle)
-        return x
+        ImageLinearised = Vec.reshape(-1, 9, 1)
+        TcExpanded = torch.repeat_interleave(Tc, ImageSize,0)
+        
+        Res = torch.bmm(TcExpanded, ImageLinearised) # Matrix product inside batch between Tc and one pixel
+        Res = Res.view(-1,Dim[2],Dim[3],3)
+        Res = Res.permute(0,3,1,2)
+
+        return Res
     
     def forward(self, x):
         
@@ -230,13 +239,13 @@ def FoolingLoss(Output):
 
 # Ls in paper
 def SupervisedLoss(Output, Target):
-    Loss = -1*torch.mean(Target*torch.log(Output))
+    OneHotTarget = F.one_hot(Target)
+    Loss = -1*torch.mean(OneHotTarget*torch.log(Output))
     return Loss
 
 # Lc in paper
 def ConsensusLoss(Outputs):
-    Classifiers = torch.stack(Outputs)
-    PHat = torch.mean(Classifiers, 0)
+    PHat = torch.mean(Outputs, 0)
     Loss = -1*torch.mean(PHat*torch.sum(Outputs))
     return Loss
 
@@ -309,10 +318,10 @@ for batch_idx, Data in enumerate(zip(mnist_trainset, svhn_trainset)):
     Source, Target = Data
     SourceData, SourceLabel = Source
     SourceData = SourceData.double()
-    SourceLabel = SourceLabel.double()
+
     TargetData, TargetLabel = Target
     TargetData = TargetData.double()
-    TargetLabel = TargetLabel.double()
+
     ## Place Data on GPU if available ##
     SourceData, SourceLabel = SourceData.to(device), SourceLabel.to(device)
     TargetData, TargetLabel = TargetData.to(device), TargetLabel.to(device)
@@ -325,10 +334,10 @@ for batch_idx, Data in enumerate(zip(mnist_trainset, svhn_trainset)):
     for p in TransformerSource.parameters():
         p.require_grad = False
     
-    for Classifier in SourceClassification:
+    for Idx, Classifier in enumerate(SourceClassification):
         Loss = SupervisedLoss(Classifier, SourceLabel)
-        ForwardNetwork.zero_grad()
-        Loss.backward()
+        ForwardNetwork.C[Idx].zero_grad()
+        Loss.backward(retain_graph=True)
 ### End step 1 ###
     # At(Xt)
     TargetTransformed = TransformerTarget(TargetData)
@@ -343,7 +352,7 @@ for batch_idx, Data in enumerate(zip(mnist_trainset, svhn_trainset)):
     for Classifier, Prediction in zip(Classifiers, TargetClassification):
         Classifier.zero_grad()
         Loss = FoolingLoss(Prediction)
-        Loss.backward()
+        Loss.backward(retain_graph=True)
 ### End step 2 ###
     # Update Only G and At
     ForwardNetwork.zero_grad()
@@ -352,10 +361,10 @@ for batch_idx, Data in enumerate(zip(mnist_trainset, svhn_trainset)):
         p.require_grad = True
     for p in Classifiers.parameters():
         p.require_grad = False
-    
-    Lc = ConsensusLoss(TargetClassification)
-    Lc.backward()
+        
     TargetClassificationStack = torch.stack(TargetClassification)
+    Lc = ConsensusLoss(TargetClassificationStack)
+    Lc.backward(retain_graph=True)
     # Yt*
     TargetLabelEstimated = torch.mean(TargetClassificationStack, 0)
 ### End step 3 ###
@@ -367,10 +376,11 @@ for batch_idx, Data in enumerate(zip(mnist_trainset, svhn_trainset)):
     for p in ForwardNetwork.parameters():
        p.require_grad = False
    
-    for InverseClassifier in InverseTargetClassification:
-        InverseNetwork.zero_grad()
-        Loss = SupervisedLoss(InverseClassifier, TargetLabelEstimated)
-        Loss.backward() # Update only G- and C-
+    for Idx, InverseClassifier in enumerate(InverseTargetClassification):
+        InverseNetwork.C[Idx].zero_grad()
+        _, IndexTargetLabelEstimated = torch.max(TargetLabelEstimated, dim = 1)
+        Loss = SupervisedLoss(InverseClassifier, IndexTargetLabelEstimated)
+        Loss.backward(retain_graph=True) # Update only G- and C-
 ### End step 4 ###
     # Only update C-
     InverseClassifiers = InverseNetwork.C
@@ -380,7 +390,7 @@ for batch_idx, Data in enumerate(zip(mnist_trainset, svhn_trainset)):
     for InverseClassifier, Prediction in zip(InverseClassifiers, SourceClassification):
         InverseClassifier.zero_grad()
         Loss = FoolingLoss(Prediction)
-        Loss.backward() # Update only C-
+        Loss.backward(retain_graph=True) # Update only C-
 ### End step 5 ###
     # Only update G-
     for p in InverseNetwork.G.parameters():
@@ -388,8 +398,9 @@ for batch_idx, Data in enumerate(zip(mnist_trainset, svhn_trainset)):
     for p in InverseClassifiers.parameters():
         p.require_grad = False
     InverseNetwork.zero_grad()
-    Lc = ConsensusLoss(SourceClassification)
-    Lc.backward()
+    SourceClassificationStack = torch.stack(SourceClassification)
+    Lc = ConsensusLoss(SourceClassificationStack)
+    Lc.backward(retain_graph=True)
 ### End step 6 ###
     # Only train As
     for p in InverseNetwork.G.parameters():
@@ -402,7 +413,7 @@ for batch_idx, Data in enumerate(zip(mnist_trainset, svhn_trainset)):
     InverseSourceClassification = InverseNetwork(SourceTransformed)
     for InverseClassifier in InverseSourceClassification:
         Loss = SupervisedLoss(InverseClassifier, SourceLabel)
-        Loss.backward() # Update only As
+        Loss.backward(retain_graph=True) # Update only As
 ### End step 7 ###
 
 ### Prediction ###
@@ -417,29 +428,19 @@ for batch_idx, Data in enumerate(zip(mnist_testset, svhn_testset)):
     Source, Target = Data
     SourceData, SourceLabel = Source
     SourceData = SourceData.double()
-    SourceLabel = SourceLabel.double()
+
     TargetData, TargetLabel = Target
     TargetData = TargetData.double()
-    TargetLabel = TargetLabel.double()
+
     SourceData, SourceLabel = SourceData.to(device), SourceLabel.to(device)
     TargetData, TargetLabel = TargetData.to(device), TargetLabel.to(device)
     SourceTransformed = TransformerSource(SourceData)
     SourceClassification = ForwardNetwork(SourceTransformed)
-    for Classifier in SourceClassification:
-        Loss = SupervisedLoss(Classifier, SourceLabel)
-        ForwardNetwork.zero_grad()
-        Loss.backward()
 ### End step 1 ###
     TargetTransformed = TransformerTarget(TargetData)
     TargetClassification = ForwardNetwork(TargetTransformed)
     Classifiers = ForwardNetwork.C()
-    for Classifier, Prediction in zip(Classifiers, TargetClassification):
-        Classifier.zero_grad()
-        Loss = FoolingLoss(Prediction)
-        Loss.backward()
 ### End step 2 ###
-    Lc = ConsensusLoss(TargetClassification)
-    Lc.backward()
     TargetClassificationStack = torch.stack(TargetClassification)
     TargetLabelEstimated = torch.mean(TargetClassificationStack, 0)
 ### End step 3 ###
