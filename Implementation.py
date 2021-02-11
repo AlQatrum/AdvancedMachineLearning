@@ -439,7 +439,7 @@ for batch_idx, Data in enumerate(zip(mnist_testset, svhn_testset)):
 ### End step 1 ###
     TargetTransformed = TransformerTarget(TargetData)
     TargetClassification = ForwardNetwork(TargetTransformed)
-    Classifiers = ForwardNetwork.C()
+    Classifiers = ForwardNetwork.C
 ### End step 2 ###
     TargetClassificationStack = torch.stack(TargetClassification)
     TargetLabelEstimated = torch.mean(TargetClassificationStack, 0)
