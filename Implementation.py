@@ -7,16 +7,137 @@ Created on Sun Feb  7 14:39:10 2021
 ### Libraries ###
 import torch 
 import torch.nn as nn
-from sklearn.datasets import fetch_openml
-from torch.autograd import Variable
 import torch.nn.functional as F
-import numpy as np
-from skimage import transform
-import matplotlib.pyplot as plt
-
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 from torch.utils.data import DataLoader
+
+import sys, re
+
+######################################################################
+# Code from agtree2dot from François Fleuret
+# https://fleuret.org/cgi-bin/gitweb/gitweb.cgi?p=agtree2dot.git;a=summary
+# see gradient graph
+
+class Link:
+    def __init__(self, from_node, from_nb, to_node, to_nb):
+        self.from_node = from_node
+        self.from_nb = from_nb
+        self.to_node = to_node
+        self.to_nb = to_nb
+
+class Node:
+    def __init__(self, id, label):
+        self.id = id
+        self.label = label
+        self.max_in = -1
+        self.max_out = -1
+
+def slot(node_list, n, k, for_input):
+    if for_input:
+        if node_list[n].max_out > 0:
+            return str(node_list[n].id) + ':input' + str(k)
+        else:
+            return str(node_list[n].id)
+    else:
+        if node_list[n].max_in > 0:
+            return str(node_list[n].id) + ':output' + str(k)
+        else:
+            return str(node_list[n].id)
+
+def slot_string(k, for_input):
+    result = ''
+
+    if for_input:
+        label = 'input'
+    else:
+        label = 'output'
+
+    if k > 0:
+        if not for_input: result = ' |' + result
+        result +=  ' { <' + label + '0> 0'
+        for j in range(1, k + 1):
+            result += " | " + '<' + label + str(j) + '> ' + str(j)
+        result += " } "
+        if for_input: result = result + '| '
+
+    return result
+
+######################################################################
+
+def add_link(node_list, link_list, u, nu, v, nv):
+    if u is not None and v is not None:
+        link = Link(u, nu, v, nv)
+        link_list.append(link)
+        node_list[u].max_in  = max(node_list[u].max_in,  nu)
+        node_list[v].max_out = max(node_list[v].max_out, nv)
+
+######################################################################
+
+def fill_graph_lists(u, node_labels, node_list, link_list):
+
+    if u is not None and not u in node_list:
+        node = Node(len(node_list) + 1,
+                    (u in node_labels and node_labels[u]) or \
+                    re.search('<class \'(.*\.|)([a-zA-Z0-9_]*)\'>', str(type(u))).group(2))
+        node_list[u] = node
+
+        if hasattr(u, 'grad_fn'):
+            fill_graph_lists(u.grad_fn, node_labels, node_list, link_list)
+            add_link(node_list, link_list, u, 0, u.grad_fn, 0)
+
+        if hasattr(u, 'variable'):
+            fill_graph_lists(u.variable, node_labels, node_list, link_list)
+            add_link(node_list, link_list, u, 0, u.variable, 0)
+
+        if hasattr(u, 'next_functions'):
+            for i, (v, j) in enumerate(u.next_functions):
+                fill_graph_lists(v, node_labels, node_list, link_list)
+                add_link(node_list, link_list, u, i, v, j)
+
+######################################################################
+
+def print_dot(node_list, link_list, out):
+    out.write('digraph{\n')
+
+    for n in node_list:
+        node = node_list[n]
+
+        if isinstance(n, torch.autograd.Variable):
+            out.write(
+                '  ' + \
+                str(node.id) + ' [shape=note,style=filled, fillcolor="#e0e0ff",label="' + \
+                node.label + ' ' + re.search('torch\.Size\((.*)\)', str(n.data.size())).group(1) + \
+                '"]\n'
+            )
+        else:
+            out.write(
+                '  ' + \
+                str(node.id) + ' [shape=record,style=filled, fillcolor="#f0f0f0",label="{ ' + \
+                slot_string(node.max_out, for_input = True) + \
+                node.label + \
+                slot_string(node.max_in, for_input = False) + \
+                ' }"]\n'
+            )
+
+    for n in link_list:
+        out.write('  ' + \
+                  slot(node_list, n.from_node, n.from_nb, for_input = False) + \
+                  ' -> ' + \
+                  slot(node_list, n.to_node, n.to_nb, for_input = True) + \
+                  '\n')
+
+    out.write('}\n')
+
+######################################################################
+
+def save_dot(x, node_labels = {}, out = sys.stdout):
+    node_list, link_list = {}, []
+    fill_graph_lists(x, node_labels, node_list, link_list)
+    print_dot(node_list, link_list, out)
+
+######################################################################
+# End of agtree2dot
 
 ### Creating objects ###
 
@@ -250,13 +371,239 @@ def ConsensusLoss(Outputs):
     return Loss
 
 # To compute the number of error in the prediction
-def compute_nb_errors(Target, TrueLabels, bs):
+def ComputeNbErrors(Target, TrueLabels, bs):
   nb_errors = 0
-  _, predicted_classes = Target.max(1)
+  _, predicted_classes = torch.max(Target, dim = 1)
   for k in range(bs):
       if TrueLabels[k] != predicted_classes[k]:
           nb_errors = nb_errors + 1
   return nb_errors
+
+
+### Reminder: Gradient shall not propagate until the end 
+### Sequential trainning method
+def do_epoch(epoch_idx):
+    # zip : The iterator stops when the shortest input iterable is exhausted.
+    batch_len = min(len(mnist_trainset), len(svhn_trainset))
+    
+    for batch_idx, Data in enumerate(zip(mnist_trainset, svhn_trainset)):
+        graph = batch_idx == 0 and epoch_idx == 0
+        ### Data ###
+        Source, Target = Data
+        SourceData, SourceLabel = Source
+        SourceData = SourceData.double()
+    
+        TargetData, TargetLabel = Target
+        TargetData = TargetData.double()
+    
+        ## Place Data on GPU if available ##
+        SourceData, SourceLabel = SourceData.to(device), SourceLabel.to(device)
+        TargetData, TargetLabel = TargetData.to(device), TargetLabel.to(device)
+        
+        # Zero grad optimizer
+        OptimizerTransformerSource.zero_grad()
+        OptimizerTransformerTarget.zero_grad()
+        OptimizerForwardNetworkG.zero_grad()
+        OptimizerForwardNetworkC.zero_grad()
+        OptimizerInverseNetworkG.zero_grad()
+        OptimizerInverseNetworkC.zero_grad()
+        
+        # Update only C and G ==> As do not require grad
+        for p in TransformerSource.parameters():
+            p.requires_grad = False
+        for p in TransformerTarget.parameters():
+            p.requires_grad = False
+        for p in ForwardNetwork.parameters():
+            p.requires_grad = True
+        for p in InverseNetwork.parameters():
+            p.requires_grad = False
+        
+        # As(Xs)
+        SourceTransformed = TransformerSource(SourceData)
+        # C(G(As(Xs)))
+        SourceClassification = ForwardNetwork(SourceTransformed)
+        
+        
+        ForwardNetwork.zero_grad()
+        LossTotal = 0
+        for Idx, Classifier in enumerate(SourceClassification):
+            Loss = SupervisedLoss(Classifier, SourceLabel)
+            LossTotal += Loss
+        
+        LossTotal.backward()
+        if graph:
+            save_dot(LossTotal,{},open('./graph_step1.dot', 'w'))
+        OptimizerForwardNetworkG.step()
+        OptimizerForwardNetworkC.step()
+    ### End step 1 ###
+        # Update only C ==> G and As do not require grad
+        # Graph is constructed in the forward pass, always set requires_grad params before evaluating the model
+        for p in ForwardNetwork.G.parameters():
+            p.requires_grad = False
+            
+        # At(Xt)
+        TargetTransformed = TransformerTarget(TargetData)
+        # C(G(At(Xt)))
+        TargetClassification = ForwardNetwork(TargetTransformed)
+        Classifiers = ForwardNetwork.C
+        
+        Classifiers.zero_grad()
+        OptimizerForwardNetworkC.zero_grad()
+        LossTotal2 = 0
+        for Classifier, Prediction in zip(Classifiers, TargetClassification):
+            Loss = FoolingLoss(Prediction)
+            LossTotal2 += Loss
+        if graph:
+            save_dot(LossTotal2,{},open('./graph_step2.dot', 'w'))
+        LossTotal2.backward()
+        OptimizerForwardNetworkC.step()
+    ### End step 2 ###
+        # Update Only G and At
+        ForwardNetwork.zero_grad()
+        TransformerTarget.zero_grad()
+        OptimizerForwardNetworkG.zero_grad()
+        OptimizerTransformerTarget.zero_grad()
+        for p in TransformerTarget.parameters():
+            p.requires_grad = True
+        for p in ForwardNetwork.G.parameters():
+            p.requires_grad = True
+        for p in ForwardNetwork.C.parameters():
+            p.requires_grad = False
+        for p in InverseNetwork.parameters():
+            p.requires_grad = False
+        
+        # Recompute C(G(At(Xt)))
+        TargetTransformed = TransformerTarget(TargetData)
+        TargetClassification = ForwardNetwork(TargetTransformed)
+        
+        TargetClassificationStack = torch.stack(TargetClassification)
+        Lc = ConsensusLoss(TargetClassificationStack)
+        if graph:
+            save_dot(Lc,{},open('./graph_step3.dot', 'w'))
+        Lc.backward()
+        OptimizerForwardNetworkG.step()
+        OptimizerTransformerTarget.step()
+        # Yt*
+        TargetLabelEstimated = torch.mean(TargetClassificationStack, 0)
+    ### End step 3 ###
+        # Only update C- and G-
+        for p in TransformerSource.parameters():
+            p.requires_grad = False
+        for p in ForwardNetwork.parameters():
+            p.requires_grad = False
+        for p in TransformerTarget.parameters():
+            p.requires_grad = False
+        for p in InverseNetwork.parameters():
+            p.requires_grad = True
+        # C-(G-(At(Xt)))
+        TargetTransformed = TransformerTarget(TargetData)
+        InverseTargetClassification = InverseNetwork(TargetTransformed)
+       
+        InverseNetwork.zero_grad()
+        OptimizerInverseNetworkG.zero_grad()
+        OptimizerInverseNetworkC.zero_grad()
+        LossTotal3 = 0
+        for Idx, InverseClassifier in enumerate(InverseTargetClassification):
+            _, IndexTargetLabelEstimated = torch.max(TargetLabelEstimated, dim = 1)
+            Loss = SupervisedLoss(InverseClassifier, IndexTargetLabelEstimated)
+            LossTotal3 += Loss
+        if graph:
+            save_dot(LossTotal3,{},open('./graph_step4.dot', 'w'))
+        LossTotal3.backward() # Update only G- and C-
+        OptimizerInverseNetworkG.step()
+        OptimizerInverseNetworkC.step()
+    ### End step 4 ###
+        # Only update C-
+        InverseClassifiers = InverseNetwork.C
+        for p in InverseNetwork.G.parameters():
+            p.requires_grad = False
+            
+        # As(Xs)
+        SourceTransformed = TransformerSource(SourceData)
+        # C-(G-(As(Xs)))
+        InverseSourceClassification = InverseNetwork(SourceTransformed)
+        
+        InverseClassifiers.zero_grad()
+        OptimizerInverseNetworkC.zero_grad()
+        LossTotal4 = 0
+        for Prediction in InverseSourceClassification:
+            Loss = FoolingLoss(Prediction)
+            LossTotal4 += Loss
+        if graph:
+            save_dot(LossTotal4,{},open('./graph_step5.dot', 'w'))
+        LossTotal4.backward() # Update only C-
+        OptimizerInverseNetworkC.step()
+    ### End step 5 ###
+        # Only update G-
+        for p in InverseNetwork.G.parameters():
+            p.requires_grad = True
+        for p in InverseNetwork.C.parameters():
+            p.requires_grad = False
+            
+        # As(Xs)
+        SourceTransformed = TransformerSource(SourceData)
+        # C-(G-(As(Xs)))
+        InverseSourceClassification = InverseNetwork(SourceTransformed)
+        
+        InverseNetwork.zero_grad()
+        OptimizerInverseNetworkG.zero_grad()
+        SourceClassificationStack = torch.stack(InverseSourceClassification)
+        Lc = ConsensusLoss(SourceClassificationStack)
+        if graph:
+            save_dot(Lc,{},open('./graph_step6.dot', 'w'))
+        Lc.backward()
+        OptimizerInverseNetworkG.step()
+    ### End step 6 ###
+        # Only train As
+        for p in InverseNetwork.G.parameters():
+            p.requires_grad = False
+        for p in TransformerSource.parameters():
+            p.requires_grad = True
+            
+        # As(Xs)
+        SourceTransformed = TransformerSource(SourceData)
+        # C-(G-(As(Xs)))
+        InverseSourceClassification = InverseNetwork(SourceTransformed)
+        
+        TransformerSource.zero_grad()
+        
+        LossTotal5 = 0
+        for InverseClassifier in InverseSourceClassification:
+            Loss = SupervisedLoss(InverseClassifier, SourceLabel)
+            LossTotal5 += Loss
+        if graph:
+            save_dot(LossTotal5,{},open('./graph_step7.dot', 'w'))
+        LossTotal5.backward() # Update only As
+        OptimizerTransformerSource.step()
+        
+        if batch_idx % 10 == 0:
+            nb_err = ComputeNbErrors(TargetLabelEstimated, TargetLabel, bs)
+            print(f'Epoch : {epoch_idx} [Batch : {batch_idx}/{batch_len}, {nb_err} errors]')
+    ### End step 7 ###
+    
+def train(n_epoch):
+    for EpochIdx in range(n_epoch):
+        do_epoch(EpochIdx)
+
+def SaveModel(path):
+    torch.save({"SourceTransformer": TransformerSource.state_dict(),
+                "TargetTransformer": TransformerTarget.state_dict(),
+                "ForwardNetwork": ForwardNetwork.state_dict(),
+                "InverseNetwork": InverseNetwork.state_dict()}, path)
+
+def LoadModel(path):
+    TransformerSource = Transformer()
+    TransformerTarget = Transformer()
+    
+    ForwardNetwork = Network()
+    InverseNetwork = Network()
+    
+    params_dict = torch.load(path)
+    TransformerSource.load_state_dict(params_dict["SourceTransformer"])
+    TransformerTarget.load_state_dict(params_dict["TargetTransformer"])
+    ForwardNetwork.load_state_dict(params_dict["ForwardNetwork"])
+    InverseNetwork.load_state_dict(params_dict["InverseNetwork"])
+    return TransformerSource, TransformerTarget, ForwardNetwork, InverseNetwork
 
 ### Main Program ###
 ### Parameters
@@ -311,143 +658,54 @@ InverseNetwork = Network()
 InverseNetwork = InverseNetwork.double().to(device)
 InverseNetwork.train()
 
-### Reminder: Gradient shall not propagate until the end 
-### Sequential trainning method
-for batch_idx, Data in enumerate(zip(mnist_trainset, svhn_trainset)):
-    ### Data ###
-    Source, Target = Data
-    SourceData, SourceLabel = Source
-    SourceData = SourceData.double()
+### Optimizer instanciation
+OptimizerTransformerSource = torch.optim.Adam(TransformerSource.parameters(),lr = 2e-6, weight_decay = 0.0005)
+OptimizerTransformerTarget = torch.optim.Adam(TransformerTarget.parameters(),lr = 2e-6, weight_decay = 0.0005)
+OptimizerForwardNetworkG = torch.optim.Adam(ForwardNetwork.G.parameters(),lr = 0.0002, weight_decay = 0.0005)
+OptimizerForwardNetworkC = torch.optim.Adam(ForwardNetwork.C.parameters(),lr = 0.0002, weight_decay = 0.0005)
+OptimizerInverseNetworkG = torch.optim.Adam(InverseNetwork.G.parameters(),lr = 0.0002, weight_decay = 0.0005)
+OptimizerInverseNetworkC = torch.optim.Adam(InverseNetwork.C.parameters(),lr = 0.0002, weight_decay = 0.0005)
 
-    TargetData, TargetLabel = Target
-    TargetData = TargetData.double()
+n_epoch = 100 # cf article
+train(n_epoch)
+SaveModel("Trained_model.pytorch")
 
-    ## Place Data on GPU if available ##
-    SourceData, SourceLabel = SourceData.to(device), SourceLabel.to(device)
-    TargetData, TargetLabel = TargetData.to(device), TargetLabel.to(device)
-    
-    # As(Xs)
-    SourceTransformed = TransformerSource(SourceData)
-    # C(G(As(Xs)))
-    SourceClassification = ForwardNetwork(SourceTransformed)
-    # Update only C and G ==> As do not require grad
-    for p in TransformerSource.parameters():
-        p.require_grad = False
-    
-    for Idx, Classifier in enumerate(SourceClassification):
-        Loss = SupervisedLoss(Classifier, SourceLabel)
-        ForwardNetwork.C[Idx].zero_grad()
-        Loss.backward(retain_graph=True)
-### End step 1 ###
-    # At(Xt)
-    TargetTransformed = TransformerTarget(TargetData)
-    # C(G(At(Xt)))
-    TargetClassification = ForwardNetwork(TargetTransformed)
-    Classifiers = ForwardNetwork.C
-    
-    # Update only C ==> G and As do not require grad
-    for p in ForwardNetwork.G.parameters():
-        p.require_grad = False
-    
-    for Classifier, Prediction in zip(Classifiers, TargetClassification):
-        Classifier.zero_grad()
-        Loss = FoolingLoss(Prediction)
-        Loss.backward(retain_graph=True)
-### End step 2 ###
-    # Update Only G and At
-    ForwardNetwork.zero_grad()
-    TransformerTarget.zero_grad()
-    for p in ForwardNetwork.G.parameters():
-        p.require_grad = True
-    for p in Classifiers.parameters():
-        p.require_grad = False
-        
-    TargetClassificationStack = torch.stack(TargetClassification)
-    Lc = ConsensusLoss(TargetClassificationStack)
-    Lc.backward(retain_graph=True)
-    # Yt*
-    TargetLabelEstimated = torch.mean(TargetClassificationStack, 0)
-### End step 3 ###
-    # C-(G-(At(Xt)))
-    InverseTargetClassification = InverseNetwork(TargetTransformed)
-    # Only update C- and G-
-    for p in TransformerSource.parameters():
-        p.require_grad = False
-    for p in ForwardNetwork.parameters():
-       p.require_grad = False
-   
-    for Idx, InverseClassifier in enumerate(InverseTargetClassification):
-        InverseNetwork.C[Idx].zero_grad()
-        _, IndexTargetLabelEstimated = torch.max(TargetLabelEstimated, dim = 1)
-        Loss = SupervisedLoss(InverseClassifier, IndexTargetLabelEstimated)
-        Loss.backward(retain_graph=True) # Update only G- and C-
-### End step 4 ###
-    # Only update C-
-    InverseClassifiers = InverseNetwork.C
-    for p in InverseNetwork.G.parameters():
-        p.require_grad = False
-        
-    for InverseClassifier, Prediction in zip(InverseClassifiers, SourceClassification):
-        InverseClassifier.zero_grad()
-        Loss = FoolingLoss(Prediction)
-        Loss.backward(retain_graph=True) # Update only C-
-### End step 5 ###
-    # Only update G-
-    for p in InverseNetwork.G.parameters():
-        p.require_grad = True
-    for p in InverseClassifiers.parameters():
-        p.require_grad = False
-    InverseNetwork.zero_grad()
-    SourceClassificationStack = torch.stack(SourceClassification)
-    Lc = ConsensusLoss(SourceClassificationStack)
-    Lc.backward(retain_graph=True)
-### End step 6 ###
-    # Only train As
-    for p in InverseNetwork.G.parameters():
-        p.require_grad = False
-    for p in TransformerSource.parameters():
-        p.require_grad = True
-    
-    TransformerSource.zero_grad()
-    
-    InverseSourceClassification = InverseNetwork(SourceTransformed)
-    for InverseClassifier in InverseSourceClassification:
-        Loss = SupervisedLoss(InverseClassifier, SourceLabel)
-        Loss.backward(retain_graph=True) # Update only As
-### End step 7 ###
+# Compare Yt* with 
+
 
 ### Prediction ###
+# TransformerSource, TransformerTarget, ForwardNetwork, InverseNetwork = LoadModel("Trained_model.pytorch")
 
-TransformerSource.eval()
-TransformerTarget.eval()
+# TransformerSource.eval()
+# TransformerTarget.eval()
 
-ForwardNetwork.eval()
-InverseNetwork.eval()
+# ForwardNetwork.eval()
+# InverseNetwork.eval()
 
-for batch_idx, Data in enumerate(zip(mnist_testset, svhn_testset)):
-    Source, Target = Data
-    SourceData, SourceLabel = Source
-    SourceData = SourceData.double()
+# for batch_idx, Data in enumerate(zip(mnist_testset, svhn_testset)):
+#     Source, Target = Data
+#     SourceData, SourceLabel = Source
+#     SourceData = SourceData.double()
 
-    TargetData, TargetLabel = Target
-    TargetData = TargetData.double()
+#     TargetData, TargetLabel = Target
+#     TargetData = TargetData.double()
 
-    SourceData, SourceLabel = SourceData.to(device), SourceLabel.to(device)
-    TargetData, TargetLabel = TargetData.to(device), TargetLabel.to(device)
-    SourceTransformed = TransformerSource(SourceData)
-    SourceClassification = ForwardNetwork(SourceTransformed)
-### End step 1 ###
-    TargetTransformed = TransformerTarget(TargetData)
-    TargetClassification = ForwardNetwork(TargetTransformed)
-    Classifiers = ForwardNetwork.C
-### End step 2 ###
-    TargetClassificationStack = torch.stack(TargetClassification)
-    TargetLabelEstimated = torch.mean(TargetClassificationStack, 0)
-### End step 3 ###
+#     SourceData, SourceLabel = SourceData.to(device), SourceLabel.to(device)
+#     TargetData, TargetLabel = TargetData.to(device), TargetLabel.to(device)
+#     SourceTransformed = TransformerSource(SourceData)
+#     SourceClassification = ForwardNetwork(SourceTransformed)
+# ### End step 1 ###
+#     TargetTransformed = TransformerTarget(TargetData)
+#     TargetClassification = ForwardNetwork(TargetTransformed)
+#     Classifiers = ForwardNetwork.C
+# ### End step 2 ###
+#     TargetClassificationStack = torch.stack(TargetClassification)
+#     TargetLabelEstimated = torch.mean(TargetClassificationStack, 0)
+# ### End step 3 ###
 
-FalsePredictions = compute_nb_errors(TargetLabelEstimated, svhn_testset[1], bs)
+# FalsePredictions = compute_nb_errors(TargetLabelEstimated, svhn_testset[1], bs)
 
-print("Total correct: "+ str(len(svhn_testset[1])-FalsePredictions))
-print("Accuracy: "+str(len(svhn_testset[1])-FalsePredictions)/len(svhn_testset[1]))
+# print("Total correct: "+ str(len(svhn_testset[1])-FalsePredictions))
+# print("Accuracy: "+str(len(svhn_testset[1])-FalsePredictions)/len(svhn_testset[1]))
 
 
