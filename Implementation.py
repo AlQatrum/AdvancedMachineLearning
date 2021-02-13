@@ -386,7 +386,7 @@ def do_epoch(epoch_idx, device):
     # zip : The iterator stops when the shortest input iterable is exhausted.
     batch_len = min(len(mnist_trainset), len(svhn_trainset))
     
-    for batch_idx, Data in enumerate(zip(mnist_trainset, svhn_trainset)):
+    for batch_idx, Data in enumerate(zip(svhn_trainset, mnist_trainset)):
         graph = batch_idx == 0 and epoch_idx == 0
         ### Data ###
         Source, Target = Data
@@ -674,34 +674,44 @@ SaveModel("Trained_model.pytorch")
 
 
 ### Prediction ###
-# TransformerSource, TransformerTarget, ForwardNetwork, InverseNetwork = LoadModel("Trained_model.pytorch")
+Rep = "C:/Users/alexi/OneDrive/Documents/DocumentsPersonnels/SynchroDropbox/Dropbox/IODAA2020/Saclay/Learning theory and advanced machine learning/Projet/AdvancedMachineLearning/"
+TransformerSource, TransformerTarget, ForwardNetwork, InverseNetwork = LoadModel(Rep + "Trained_modelMinstToSvhn.pytorch")
 
-# TransformerSource.eval()
-# TransformerTarget.eval()
+TransformerSource = TransformerSource.float().to(device)
+TransformerTarget = TransformerTarget.float().to(device)
+ForwardNetwork = ForwardNetwork.float().to(device)
+InverseNetwork = InverseNetwork.float().to(device)
 
-# ForwardNetwork.eval()
-# InverseNetwork.eval()
+TransformerSource.eval()
+TransformerTarget.eval()
 
-# for batch_idx, Data in enumerate(zip(mnist_testset, svhn_testset)):
-#     Source, Target = Data
-#     SourceData, SourceLabel = Source
-#     SourceData = SourceData.float()
+ForwardNetwork.eval()
+InverseNetwork.eval()
 
-#     TargetData, TargetLabel = Target
-#     TargetData = TargetData.float()
+for batch_idx, Target in enumerate(svhn_testset):
+    batch_len = len(svhn_testset)
+    TargetData, TargetLabel = Target
+    TargetData = TargetData.float()
+    TargetLabel = TargetLabel.float()
+    TargetData, TargetLabel = TargetData.to(device), TargetLabel.to(device)
+### End step 1 ###
+    TargetTransformed = TransformerTarget(TargetData)
+    TargetClassification = ForwardNetwork(TargetTransformed)
+    Classifiers = ForwardNetwork.C
+### End step 2 ###
+    TargetClassificationStack = torch.stack(TargetClassification)
+    TargetLabelEstimated = torch.mean(TargetClassificationStack, 0)
+### End step 3 ###
+    
+    if batch_idx % 10 == 0:
+        nb_err = ComputeNbErrors(TargetLabelEstimated, TargetLabel, bs)
+        print(f'[Batch : {batch_idx}/{batch_len}, {nb_err} errors]')
 
-#     SourceData, SourceLabel = SourceData.to(device), SourceLabel.to(device)
-#     TargetData, TargetLabel = TargetData.to(device), TargetLabel.to(device)
-#     SourceTransformed = TransformerSource(SourceData)
-#     SourceClassification = ForwardNetwork(SourceTransformed)
-# ### End step 1 ###
-#     TargetTransformed = TransformerTarget(TargetData)
-#     TargetClassification = ForwardNetwork(TargetTransformed)
-#     Classifiers = ForwardNetwork.C
-# ### End step 2 ###
-#     TargetClassificationStack = torch.stack(TargetClassification)
-#     TargetLabelEstimated = torch.mean(TargetClassificationStack, 0)
-# ### End step 3 ###
+
+
+
+
+
 
 # FalsePredictions = compute_nb_errors(TargetLabelEstimated, svhn_testset[1], bs)
 
