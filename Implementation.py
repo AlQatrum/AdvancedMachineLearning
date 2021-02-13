@@ -211,7 +211,7 @@ class SpatialTransformer(nn.Module):
         x = self.MaxPool2(x)
         x = self.Relu2(x)
         x = self.DropOut2(x)
-        x = x.view(-1, 512)
+        x = x.reshape(-1, 512)
         x = self.Lin1(x)
         x = self.Relu3(x)
         x = self.Lin2(x)
@@ -382,7 +382,7 @@ def ComputeNbErrors(Target, TrueLabels, bs):
 
 ### Reminder: Gradient shall not propagate until the end 
 ### Sequential trainning method
-def do_epoch(epoch_idx):
+def do_epoch(epoch_idx, device):
     # zip : The iterator stops when the shortest input iterable is exhausted.
     batch_len = min(len(mnist_trainset), len(svhn_trainset))
     
@@ -391,10 +391,10 @@ def do_epoch(epoch_idx):
         ### Data ###
         Source, Target = Data
         SourceData, SourceLabel = Source
-        SourceData = SourceData.double()
+        SourceData = SourceData.float()
     
         TargetData, TargetLabel = Target
-        TargetData = TargetData.double()
+        TargetData = TargetData.float()
     
         ## Place Data on GPU if available ##
         SourceData, SourceLabel = SourceData.to(device), SourceLabel.to(device)
@@ -581,9 +581,9 @@ def do_epoch(epoch_idx):
             print(f'Epoch : {epoch_idx} [Batch : {batch_idx}/{batch_len}, {nb_err} errors]')
     ### End step 7 ###
     
-def train(n_epoch):
+def train(n_epoch, device):
     for EpochIdx in range(n_epoch):
-        do_epoch(EpochIdx)
+        do_epoch(EpochIdx, device)
 
 def SaveModel(path):
     torch.save({"SourceTransformer": TransformerSource.state_dict(),
@@ -645,17 +645,17 @@ svhn_testset = DataLoader(datasets.SVHN('./data/svhn', download=True, split = 't
 
 ### Model instanciation
 TransformerSource = Transformer()
-TransformerSource = TransformerSource.double().to(device)
+TransformerSource = TransformerSource.float().to(device)
 TransformerSource.train()
 TransformerTarget = Transformer()
-TransformerTarget = TransformerTarget.double().to(device)
+TransformerTarget = TransformerTarget.float().to(device)
 TransformerTarget.train()
 
 ForwardNetwork = Network()
-ForwardNetwork = ForwardNetwork.double().to(device)
+ForwardNetwork = ForwardNetwork.float().to(device)
 ForwardNetwork.train()
 InverseNetwork = Network()
-InverseNetwork = InverseNetwork.double().to(device)
+InverseNetwork = InverseNetwork.float().to(device)
 InverseNetwork.train()
 
 ### Optimizer instanciation
@@ -667,7 +667,7 @@ OptimizerInverseNetworkG = torch.optim.Adam(InverseNetwork.G.parameters(),lr = 0
 OptimizerInverseNetworkC = torch.optim.Adam(InverseNetwork.C.parameters(),lr = 0.0002, weight_decay = 0.0005)
 
 n_epoch = 100 # cf article
-train(n_epoch)
+train(n_epoch, device)
 SaveModel("Trained_model.pytorch")
 
 # Compare Yt* with 
@@ -685,10 +685,10 @@ SaveModel("Trained_model.pytorch")
 # for batch_idx, Data in enumerate(zip(mnist_testset, svhn_testset)):
 #     Source, Target = Data
 #     SourceData, SourceLabel = Source
-#     SourceData = SourceData.double()
+#     SourceData = SourceData.float()
 
 #     TargetData, TargetLabel = Target
-#     TargetData = TargetData.double()
+#     TargetData = TargetData.float()
 
 #     SourceData, SourceLabel = SourceData.to(device), SourceLabel.to(device)
 #     TargetData, TargetLabel = TargetData.to(device), TargetLabel.to(device)

@@ -1,0 +1,186 @@
+digraph{
+  1 [shape=note,style=filled, fillcolor="#e0e0ff",label="Tensor []"]
+  2 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ MulBackward0 }"]
+  3 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ MeanBackward0 }"]
+  4 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ MulBackward0 | { <output0> 0 | <output1> 1 }  }"]
+  5 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ MeanBackward1 }"]
+  6 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ StackBackward | { <output0> 0 | <output1> 1 | <output2> 2 | <output3> 3 | <output4> 4 }  }"]
+  7 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ SoftmaxBackward }"]
+  8 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ AddmmBackward | { <output0> 0 | <output1> 1 }  }"]
+  9 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ ReluBackward0 }"]
+  10 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ CudnnBatchNormBackward }"]
+  11 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ AddmmBackward | { <output0> 0 | <output1> 1 }  }"]
+  12 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ FusedDropoutBackward }"]
+  13 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ ReluBackward0 }"]
+  14 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ CudnnBatchNormBackward | { <output0> 0 | <output1> 1 | <output2> 2 }  }"]
+  15 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ AddmmBackward | { <output0> 0 | <output1> 1 | <output2> 2 }  }"]
+  16 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ AccumulateGrad }"]
+  17 [shape=note,style=filled, fillcolor="#e0e0ff",label="Parameter [3072]"]
+  18 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ ViewBackward }"]
+  19 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ MulBackward0 }"]
+  20 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ ReluBackward0 }"]
+  21 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ CudnnBatchNormBackward | { <output0> 0 | <output1> 1 | <output2> 2 }  }"]
+  22 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ AddBackward0 | { <output0> 0 | <output1> 1 }  }"]
+  23 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ CudnnConvolutionBackward | { <output0> 0 | <output1> 1 }  }"]
+  24 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ MulBackward0 }"]
+  25 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ MaxPool2DWithIndicesBackward }"]
+  26 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ ReluBackward0 }"]
+  27 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ CudnnBatchNormBackward | { <output0> 0 | <output1> 1 | <output2> 2 }  }"]
+  28 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ AddBackward0 | { <output0> 0 | <output1> 1 }  }"]
+  29 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ CudnnConvolutionBackward | { <output0> 0 | <output1> 1 }  }"]
+  30 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ MulBackward0 }"]
+  31 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ MaxPool2DWithIndicesBackward }"]
+  32 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ ReluBackward0 }"]
+  33 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ CudnnBatchNormBackward | { <output0> 0 | <output1> 1 | <output2> 2 }  }"]
+  34 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ AddBackward0 | { <output0> 0 | <output1> 1 }  }"]
+  35 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ CudnnConvolutionBackward | { <output0> 0 | <output1> 1 }  }"]
+  36 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ AccumulateGrad }"]
+  37 [shape=note,style=filled, fillcolor="#e0e0ff",label="Parameter [64, 3, 5, 5]"]
+  38 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ ViewBackward }"]
+  39 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ AccumulateGrad }"]
+  40 [shape=note,style=filled, fillcolor="#e0e0ff",label="Parameter [64]"]
+  41 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ AccumulateGrad }"]
+  42 [shape=note,style=filled, fillcolor="#e0e0ff",label="Parameter [64]"]
+  43 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ AccumulateGrad }"]
+  44 [shape=note,style=filled, fillcolor="#e0e0ff",label="Parameter [64]"]
+  45 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ AccumulateGrad }"]
+  46 [shape=note,style=filled, fillcolor="#e0e0ff",label="Parameter [64, 64, 5, 5]"]
+  47 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ ViewBackward }"]
+  48 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ AccumulateGrad }"]
+  49 [shape=note,style=filled, fillcolor="#e0e0ff",label="Parameter [64]"]
+  50 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ AccumulateGrad }"]
+  51 [shape=note,style=filled, fillcolor="#e0e0ff",label="Parameter [64]"]
+  52 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ AccumulateGrad }"]
+  53 [shape=note,style=filled, fillcolor="#e0e0ff",label="Parameter [64]"]
+  54 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ AccumulateGrad }"]
+  55 [shape=note,style=filled, fillcolor="#e0e0ff",label="Parameter [128, 64, 5, 5]"]
+  56 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ ViewBackward }"]
+  57 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ AccumulateGrad }"]
+  58 [shape=note,style=filled, fillcolor="#e0e0ff",label="Parameter [128]"]
+  59 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ AccumulateGrad }"]
+  60 [shape=note,style=filled, fillcolor="#e0e0ff",label="Parameter [128]"]
+  61 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ AccumulateGrad }"]
+  62 [shape=note,style=filled, fillcolor="#e0e0ff",label="Parameter [128]"]
+  63 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ TBackward }"]
+  64 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ AccumulateGrad }"]
+  65 [shape=note,style=filled, fillcolor="#e0e0ff",label="Parameter [3072, 6272]"]
+  66 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ AccumulateGrad }"]
+  67 [shape=note,style=filled, fillcolor="#e0e0ff",label="Parameter [3072]"]
+  68 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ AccumulateGrad }"]
+  69 [shape=note,style=filled, fillcolor="#e0e0ff",label="Parameter [3072]"]
+  70 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ SoftmaxBackward }"]
+  71 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ AddmmBackward | { <output0> 0 | <output1> 1 }  }"]
+  72 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ ReluBackward0 }"]
+  73 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ CudnnBatchNormBackward }"]
+  74 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ AddmmBackward | { <output0> 0 | <output1> 1 }  }"]
+  75 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ SoftmaxBackward }"]
+  76 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ AddmmBackward | { <output0> 0 | <output1> 1 }  }"]
+  77 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ ReluBackward0 }"]
+  78 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ CudnnBatchNormBackward }"]
+  79 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ AddmmBackward | { <output0> 0 | <output1> 1 }  }"]
+  80 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ SoftmaxBackward }"]
+  81 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ AddmmBackward | { <output0> 0 | <output1> 1 }  }"]
+  82 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ ReluBackward0 }"]
+  83 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ CudnnBatchNormBackward }"]
+  84 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ AddmmBackward | { <output0> 0 | <output1> 1 }  }"]
+  85 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ SoftmaxBackward }"]
+  86 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ AddmmBackward | { <output0> 0 | <output1> 1 }  }"]
+  87 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ ReluBackward0 }"]
+  88 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ CudnnBatchNormBackward }"]
+  89 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ AddmmBackward | { <output0> 0 | <output1> 1 }  }"]
+  90 [shape=record,style=filled, fillcolor="#f0f0f0",label="{ SumBackward0 }"]
+  16 -> 17
+  15:output0 -> 16
+  36 -> 37
+  35:output1 -> 36
+  34:output0 -> 35
+  39 -> 40
+  38 -> 39
+  34:output1 -> 38
+  33:output0 -> 34
+  41 -> 42
+  33:output1 -> 41
+  43 -> 44
+  33:output2 -> 43
+  32 -> 33
+  31 -> 32
+  30 -> 31
+  29:output0 -> 30
+  45 -> 46
+  29:output1 -> 45
+  28:output0 -> 29
+  48 -> 49
+  47 -> 48
+  28:output1 -> 47
+  27:output0 -> 28
+  50 -> 51
+  27:output1 -> 50
+  52 -> 53
+  27:output2 -> 52
+  26 -> 27
+  25 -> 26
+  24 -> 25
+  23:output0 -> 24
+  54 -> 55
+  23:output1 -> 54
+  22:output0 -> 23
+  57 -> 58
+  56 -> 57
+  22:output1 -> 56
+  21:output0 -> 22
+  59 -> 60
+  21:output1 -> 59
+  61 -> 62
+  21:output2 -> 61
+  20 -> 21
+  19 -> 20
+  18 -> 19
+  15:output1 -> 18
+  64 -> 65
+  63 -> 64
+  15:output2 -> 63
+  14:output0 -> 15
+  66 -> 67
+  14:output1 -> 66
+  68 -> 69
+  14:output2 -> 68
+  13 -> 14
+  12 -> 13
+  11:output1 -> 12
+  10 -> 11
+  9 -> 10
+  8:output1 -> 9
+  7 -> 8
+  6:output0 -> 7
+  74:output1 -> 12
+  73 -> 74
+  72 -> 73
+  71:output1 -> 72
+  70 -> 71
+  6:output1 -> 70
+  79:output1 -> 12
+  78 -> 79
+  77 -> 78
+  76:output1 -> 77
+  75 -> 76
+  6:output2 -> 75
+  84:output1 -> 12
+  83 -> 84
+  82 -> 83
+  81:output1 -> 82
+  80 -> 81
+  6:output3 -> 80
+  89:output1 -> 12
+  88 -> 89
+  87 -> 88
+  86:output1 -> 87
+  85 -> 86
+  6:output4 -> 85
+  5 -> 6
+  4:output0 -> 5
+  90 -> 6
+  4:output1 -> 90
+  3 -> 4
+  2 -> 3
+  1 -> 2
+}
